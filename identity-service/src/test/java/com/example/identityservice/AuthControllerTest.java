@@ -24,6 +24,7 @@ import java.security.Key;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -113,5 +114,63 @@ class AuthControllerTest {
     void testToken_whenUserNotFound_shouldReturn404() throws Exception {
         mockMvc.perform(get("/api/auth/test-token").param("username", "non_existing_user"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void login_withCorrectCredentials_shouldReturn200AndValidToken_withoutHttpSession() throws Exception {
+        User user = new User("testuser", passwordEncoder.encode("password123"), "USER");
+        userRepository.save(user);
+
+        String loginJson = """
+            {
+                "username": "testuser",
+                "password": "password123"
+            }
+            """;
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andReturn();
+
+        // Verify no HTTP session created (stateless)
+        assertThat(result.getRequest().getSession(false)).isNull();
+    }
+
+    @Test
+    void login_withWrongPassword_shouldReturn401BadCredentials() throws Exception {
+        User user = new User("testuser", passwordEncoder.encode("password123"), "USER");
+        userRepository.save(user);
+
+        String loginJson = """
+            {
+                "username": "testuser",
+                "password": "wrongPassword"
+            }
+            """;
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Bad credentials"));
+    }
+
+    @Test
+    void login_withNonExistentUser_shouldReturn401BadCredentials() throws Exception {
+        String loginJson = """
+            {
+                "username": "unknown_user",
+                "password": "password123"
+            }
+            """;
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Bad credentials"));
     }
 }
